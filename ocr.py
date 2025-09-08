@@ -3,10 +3,9 @@ import requests
 import img2pdf
 import asyncio
 import unicodedata
-from dotenv import load_dotenv
 from pyzerox import zerox
 
-from config import MODEL, OUTPUT_DIR, REQUEST_TIMEOUT, OCR_DELAY
+from config import MODEL, OUTPUT_DIR, OCR_DELAY
 
 # 프로그램 시작 시 출력 디렉토리가 없으면 생성
 os.makedirs(OUTPUT_DIR, exist_ok=True)
