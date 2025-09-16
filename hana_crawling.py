@@ -1,31 +1,48 @@
+"""
+HANA (Hansung AI for Notice & Assistance)
+한성대학교 공지사항 크롤링 모듈
+
+이 파일은 한성대학교 공지사항을 크롤링하고 AI를 활용하여 신청기간을 추출하는 기능을 제공합니다.
+- RSS 피드 크롤링
+- HTML 페이지 크롤링
+- OCR 이미지 텍스트 추출
+"""
+
 import re
 import requests
+import json
+from datetime import datetime
 from bs4 import BeautifulSoup as bs
 from markdownify import markdownify as md
+from openai import OpenAI
 
-from ocr import image_urls_to_text
-from config import RSS_URL, BASE_DOMAIN, CATEGORY_MAP, DEFAULT_MAX_PAGES, REQUEST_TIMEOUT
+from hana_crawler_config import RSS_URL, BASE_DOMAIN, DEFAULT_MAX_PAGES, REQUEST_TIMEOUT, MIN_TEXT_LENGTH
+from hana_utils import normalize_category, get_application_period, image_urls_to_text
 
 
-# 함수 정의
-
-# 카테고리 정규화 함수
-def normalize_category(category):
-    return CATEGORY_MAP.get(category, category)
-
-# 공지사항 게시글을 조회하여 내용, 사진, 첨부파일 수집하는 함수
+# HTML 크롤링 함수
 def html_crawl(url, base_domain=BASE_DOMAIN):
+    """
+    공지사항 게시글을 조회하여 내용, 사진, 첨부파일을 수집합니다.
+    
+    Args:
+        url (str): 공지사항 URL
+        base_domain (str): 기본 도메인
+        
+    Returns:
+        tuple: (content, image_urls, attachments)
+    """
     try:
         page = requests.get(url, timeout=REQUEST_TIMEOUT)
         page.raise_for_status()
     except requests.RequestException as e:
         print(f"HTML 크롤링 요청 실패: {url} - {e}")
-        return "", [], []
+        return None, [], []
     
     soup = bs(page.text, 'html.parser')
 
     # 본문 내용, 사진 링크들, 첨부파일들
-    content, image_urls, attachments = "", [], []
+    content, image_urls, attachments = None, [], []
 
     # 내용 및 사진
     view_con_div = soup.find('div', class_='view-con')
@@ -53,10 +70,23 @@ def html_crawl(url, base_domain=BASE_DOMAIN):
     
     return content, image_urls, attachments
 
-# RSS 피드를 순회하여 제목, 링크, 게시일, 카테고리 수집하는 함수
+
+# RSS 크롤링 메인 함수
 async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, rss_url=RSS_URL, base_domain=BASE_DOMAIN):
+    """
+    RSS 피드를 순회하여 제목, 링크, 게시일, 카테고리를 수집하고 크롤링합니다.
+    
+    Args:
+        db: 데이터베이스 객체
+        max_pages (int): 최대 크롤링 페이지 수
+        rss_url (str): RSS URL 템플릿
+        base_domain (str): 기본 도메인
+        
+    Returns:
+        None
+    """
     saved_cnt = 0
-    image_only_count = 0
+    ocr_count = 0
 
     for page_number in range(1, max_pages+1):
         url = rss_url.format(page_number)
@@ -87,28 +117,44 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, rss_url=RSS_URL, base_domai
             if link.startswith("/"):
                 link = f"{base_domain}{link}"
 
-            # 내용, 사진, 첨부파일들
+            # HTML 크롤링 (내용, 이미지, 첨부파일)
             content, image_urls, attachments = html_crawl(link, base_domain)
-
-            # 내용은 없고, 이미지 URL은 있는지 확인
-            if image_urls and content == "":
-                image_only_count += 1
-                print(f"-> 이미지만 존재하는 공지 발견: {title}")
-
-                # OCR로 이미지 텍스트 추출
+            
+            # OCR 처리
+            if not content and image_urls:
+                # 텍스트가 없고 이미지만 있는 경우
+                ocr_count += 1
+                
                 content = await image_urls_to_text(image_urls)
-
-            # 공지사항 ID 추출, '143/' 뒤에 오는 숫자 그룹을 찾는 정규표현식
+            elif content and len(content) < MIN_TEXT_LENGTH and image_urls:
+                # 텍스트가 짧고 이미지가 있는 경우 OCR도 시도
+                ocr_count += 1
+                
+                print(f"-> 텍스트가 짧아서 OCR도 시도: {title} (텍스트 길이: {len(content)}자)")
+                ocr_content = await image_urls_to_text(image_urls)
+                if ocr_content and len(ocr_content) > len(content):
+                    content = ocr_content
+            
+            # 최종 신청기간 추출
+            start_date, end_date = None, None
+            if content:
+                start_date, end_date = get_application_period(content)
+                if end_date and not start_date:
+                    start_date = pub_date
+                
+            # 공지사항 ID 추출
             match = re.search(r'143/(\d+)', link)
-            notice_id = match.group(1)
+            notice_id = match.group(1) if match else "unknown"
 
             # DB에 저장
             db.save_notice(
                 notice_id=notice_id,
                 title=title,
                 link=link,
-                date=pub_date,
+                pub_date=pub_date,
                 category=category,
+                start_date=start_date,
+                end_date=end_date,
                 content=content,
                 image_urls=image_urls,
                 attachments=attachments
@@ -116,4 +162,4 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, rss_url=RSS_URL, base_domai
             saved_cnt += 1
             
     print(f"총 {saved_cnt}개의 공지사항이 성공적으로 저장되었습니다!")
-    print(f"이미지만 있는 공지는 총 {image_only_count}개입니다.")
+    print(f"OCR을 실행한 공지는 총 {ocr_count}개입니다.")
