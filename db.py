@@ -11,7 +11,7 @@ class FileDB: # .txt 파일로 저장
             with open(self.filename, "w", encoding="utf-8") as f:
                 f.write("===== Notice DB Start =====\n\n")
 
-    def save_notice(self, notice_id, title, link, date, category, content, image_urls=None, attachments=None):
+    def save_notice(self, notice_id, title, link, pub_date, category, start_date, end_date, content, image_urls=None, attachments=None):
         """공지사항을 .txt 파일에 저장"""
         # 중복 체크
         if notice_id in self.saved_notices:
@@ -26,8 +26,10 @@ class FileDB: # .txt 파일로 저장
                 f.write(f"ID: {notice_id}\n")
                 f.write(f"제목: {title}\n")
                 f.write(f"링크: {link}\n")
-                f.write(f"게시 날짜: {date}\n")
+                f.write(f"게시 날짜: {pub_date}\n")
                 f.write(f"카테고리: {category}\n")
+                f.write(f"시작일: {start_date if start_date else '없음'}\n")
+                f.write(f"종료일: {end_date if end_date else '없음'}\n")
                 
                 if image_urls:
                     f.write("이미지 URL:\n")
