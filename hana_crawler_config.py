@@ -80,69 +80,39 @@ REQUEST_TIMEOUT = 30
 # OCR 처리 전 대기 시간 (초) - 서버 부하 방지
 OCR_DELAY = 2
 # OCR 적용을 위한 최소 텍스트 길이 (이 길이보다 짧으면 OCR도 시도)
-MIN_TEXT_LENGTH = 200
+MIN_TEXT_LENGTH = 250
 
 
 # 신청기간 추출을 위한 AI 프롬프트
 # {content}: 공지사항 본문 내용
-# {current_year}: 현재 연도
 PROMPT = """
-    지시:
-        - 다음 공지사항에서 신청기간의 시작일과 종료일을 찾아주세요.
+    너는 주어진 본문에서 신청 기간의 시작일과 종료일을 추출하여 JSON 형식으로 반환하는 AI야.
 
-    본문:
-        {content}
+    # 규칙
+    - 본문 내용을 분석해서 신청 기간을 찾아.
+    - 결과는 반드시 지정된 JSON 형식으로만 응답해야 해. 다른 설명은 절대 추가하지 마.
+    - 응답 시 ```json, ``` 등 마크다운 문법은 절대 사용하지 마.
 
-    응답 형식:
-        반드시 다음 JSON 형식으로만 응답하세요:
+    # 응답 형식 (JSON)
+    - 날짜는 항상 "YYYY-MM-DD" 형식으로 작성해줘.
+    - 기간을 찾을 수 없으면 "has_period"는 false, 날짜는 모두 null로 처리해.
+    - 기간을 찾았다면 "has_period"는 true로 하고, "end_date"는 반드시 값이 있어야 해. "start_date"는 없으면 null로 처리해.
+    {{
+        "has_period": boolean,
+        "start_date": "YYYY-MM-DD" or null,
+        "end_date": "YYYY-MM-DD" or null
+    }}
 
-        {{
-            "has_period": true 또는 false,
-            "start_date": "{current_year}-MM-DD" 또는 null,
-            "end_date": "{current_year}-MM-DD" 또는 null
-        }}
+    # 예시
+    1. 본문: "모집 기간은 9월 16일부터 10월 5일까지입니다."
+    JSON: {{"has_period": true, "start_date": "2025-09-16", "end_date": "2025-10-05"}}
 
-    예시(Examples):
-        ## 예시 1
-        - 본문: "모집 기간은 9월 16일부터 10월 5일까지입니다."
-        - JSON:
-        {{
-            "has_period": true,
-            "start_date": "2025-09-16",
-            "end_date": "2025-10-05"
-        }}
+    2. 본문: "접수 마감은 2025년 9월 30일 18:00까지입니다."
+    JSON: {{"has_period": true, "start_date": null, "end_date": "2025-09-30"}}
 
-        ## 예시 2
-        - 본문: "관심 있는 분들의 많은 지원 바랍니다."
-        - JSON:
-        {{
-            "has_period": false,
-            "start_date": null,
-            "end_date": null
-        }}
+    3. 본문: "본 채용은 상시 모집으로 진행됩니다."
+    JSON: {{"has_period": false, "start_date": null, "end_date": null}}
 
-        ## 예시 3
-        - 본문: "본 채용은 상시모집으로 진행됩니다."
-        - JSON:
-        {{
-            "has_period": false,
-            "start_date": null,
-            "end_date": null
-        }}
-
-        ## 예시 4
-        - 본문: "선착순 마감이므로 서두르세요. (마감일: ~9.30)"
-        - JSON:
-        {{
-            "has_period": true,
-            "start_date": null,
-            "end_date": "2025-09-30"
-        }}
-
-    규칙:
-        - 신청기간이 없으면 has_period: false, start_date: null, end_date: null
-        - 신청기간이 있으면 has_period: true, end_date는 반드시 필요, start_date는 없으면 null
-        - 날짜는 {current_year}년 기준으로 YYYY-MM-DD 형식
-        - 반드시 순수한 JSON 형식으로만 응답하세요 (```json, ``` 등 마크다운 문법 사용 금지)
-        - 다른 설명이나 텍스트는 절대 포함하지 마세요
+    # 본문
+    {content}
 """
