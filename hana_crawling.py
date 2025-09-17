@@ -135,12 +135,14 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, rss_url=RSS_URL, base_domai
                 if ocr_content and len(ocr_content) > len(content):
                     content = ocr_content
             
-            # 최종 신청기간 추출
+            # 최종 신청기간
             start_date, end_date = None, None
             if content:
                 start_date, end_date = get_application_period(content)
                 if end_date and not start_date:
-                    start_date = pub_date
+                    # pub_date에서 시간 제거
+                    clean_pub_date = pub_date.split(' ')[0] if ' ' in pub_date else pub_date
+                    start_date = clean_pub_date
                 
             # 공지사항 ID 추출
             match = re.search(r'143/(\d+)', link)
