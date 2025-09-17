@@ -118,7 +118,7 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, rss_url=RSS_URL, base_domai
                 link = f"{base_domain}{link}"
 
             # HTML 크롤링 (내용, 이미지, 첨부파일)
-            content, image_urls, attachments = html_crawl(link, base_domain)
+            content, image_urls, attachments = html_crawl(link)
             
             # OCR 처리
             if not content and image_urls:

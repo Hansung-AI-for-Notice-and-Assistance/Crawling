@@ -55,12 +55,9 @@ def get_application_period(content):
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
         
-        current_year = datetime.now().year
-        
         # 프롬프트 템플릿 사용
         prompt = PROMPT.format(
-            content=content,
-            current_year=current_year
+            content=content
         )
 
         response = client.chat.completions.create(
