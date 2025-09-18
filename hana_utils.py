@@ -5,10 +5,9 @@ HANA (Hansung AI for Notice & Assistance)
 이 파일은 HANA 크롤링 시스템에서 사용되는 기본적인 유틸리티 함수들을 포함합니다.
 - 카테고리 매핑 처리
 - AI 기반 신청기간 추출
-- 텍스트 정리 및 특수문자 처리
-- 이미지 -> PDF 변환
-- PDF 텍스트 추출
 - 이미지 URL -> 텍스트 추출
+- 크롤링 상태 관리 (초기/일일 크롤링 구분)
+- 데이터베이스 파일 관리
 """
 
 import os
@@ -16,8 +15,7 @@ import json
 import asyncio
 import img2pdf
 import requests
-import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 from openai import OpenAI
 from pyzerox import zerox
 
@@ -47,7 +45,7 @@ def get_application_period(content):
         content (str): 공지사항 본문 내용
         
     Returns:
-        tuple: (start_date, end_date) 또는 (None, None)
+        tuple[str | None, str | None]: (시작일, 종료일)
     """
     if not content:
         return None, None
@@ -96,40 +94,6 @@ def get_application_period(content):
     except Exception as e:
         print(f"AI 신청기간 추출 실패: {e}")
         return None, None
-
-
-def clean_text(text):
-    """
-    텍스트에서 문제가 될 수 있는 특수 문자들을 정리합니다.
-    
-    Args:
-        text (str): 정리할 텍스트
-        
-    Returns:
-        str: 정리된 텍스트
-    """
-    if not text:
-        return ""
-    
-    # 유니코드 정규화
-    text = unicodedata.normalize('NFKD', text)
-    
-    # 특수 문자들을 일반 문자로 변환하거나 제거
-    replacements = {
-        '\u2613': '☒',  # ballot box with x
-        '\u2610': '☐',  # ballot box
-        '\u2611': '☑',  # ballot box with check
-        '\u2713': '✓',  # check mark
-        '\u2717': '✗',  # ballot x
-    }
-    
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    
-    # 제어 문자 제거 (탭, 개행 등은 유지)
-    text = ''.join(char for char in text if unicodedata.category(char)[0] != 'C' or char in '\t\n\r')
-    
-    return text.strip()
 
 
 def images_to_pdf(image_urls):
@@ -181,29 +145,19 @@ async def get_text_from_pdf(file_path):
         file_path (str): PDF 파일 경로
         
     Returns:
-        str: 추출된 텍스트 또는 None
+        str | None: 추출된 텍스트
     """
     try:
         result = await zerox(
             file_path=file_path,
             model=MODEL
-        )
+            )
         
-        # ZeroxOutput 객체인 경우 pages에서 텍스트 추출
-        if hasattr(result, 'pages'):
-            content = ""
-            for page in result.pages:
-                if hasattr(page, 'content'):
-                    content += page.content + "\n\n"
-            return clean_text(content)
+        content = ""
+        for page in result.pages:
+            content += page.content + "\n\n"
         
-        # dict인 경우
-        if isinstance(result, dict):
-            content = result.get("markdown", "내용을 추출하지 못했습니다.")
-            return clean_text(content)
-        
-        # 기타 경우
-        return clean_text(str(result))
+        return content
     
     except Exception as e:
         print(f"OCR 처리 실패: {e}")
@@ -215,10 +169,10 @@ async def image_urls_to_text(image_urls):
     이미지 URL들에서 텍스트를 추출합니다.
     
     Args:
-        image_urls (list): 이미지 URL 리스트
+        image_urls (list[str]): 이미지 URL 리스트
         
     Returns:
-        str: 추출된 텍스트
+        str | None: 추출된 텍스트
     """
     try:
         # 이미지를 PDF로 변환 (임시 파일 자동 생성)
@@ -244,3 +198,81 @@ async def image_urls_to_text(image_urls):
                 os.remove(PDF_PATH)
         except OSError as e:
             print(f"임시 파일 삭제 실패: {e}")
+
+
+def is_initial_crawl():
+    """
+    초기 크롤링인지 확인합니다.
+    
+    Returns:
+        bool: 초기 크롤링 여부. notice_db.txt 파일이 없으면 True
+    """
+    return not os.path.exists("notice_db.txt")
+
+
+def is_stop(pub_date):
+    """
+    크롤링을 중단해야 하는지 확인합니다.
+    
+    Args:
+        pub_date (str): 공지사항 게시일 (예: "2025-09-16 14:30:00" 또는 "2025-09-16")
+        
+    Returns:
+        bool: 크롤링 중단 여부
+    """
+    # pub_date 파싱 (시간 부분 제거)
+    if ' ' in pub_date:
+        pub_date = pub_date.split(' ')[0]
+    
+    # 작년 어제 날짜 계산
+    last_year_yesterday = datetime.now() - timedelta(days=365)
+    target_date = last_year_yesterday.strftime("%Y-%m-%d")
+    
+    if pub_date < target_date:
+        return True
+        
+    return False
+
+
+def load_latest_crawled_id():
+    """
+    마지막으로 크롤링한 공지 ID를 로드합니다.
+    
+    Returns:
+        str | None: 마지막 크롤링 ID (파일이 없거나 비어있으면 None)
+    """
+    if os.path.exists("crawled_id.txt"):
+        with open("crawled_id.txt", "r", encoding="utf-8") as f:
+            latest_id = f.read().strip()
+            return latest_id if latest_id else None
+    return None
+
+
+def save_latest_crawled_id(notice_id):
+    """
+    마지막으로 크롤링한 공지 ID를 저장합니다.
+    
+    Args:
+        notice_id (str): 저장할 공지 ID
+    """
+    with open("crawled_id.txt", "w", encoding="utf-8") as f:
+        f.write(notice_id)
+
+
+def remove_notice_db():
+    """
+    notice_db.txt 파일만 삭제합니다 (일일 크롤링용).
+    """
+    if os.path.exists("notice_db.txt"):
+        os.remove("notice_db.txt")
+
+
+def reset_database():
+    """
+    데이터베이스 파일들을 삭제합니다 (초기화).
+    """
+    files_to_delete = ["notice_db.txt", "crawled_id.txt"]
+    
+    for filename in files_to_delete:
+        if os.path.exists(filename):
+            os.remove(filename)
