@@ -8,6 +8,7 @@ HANA (Hansung AI for Notice & Assistance)
 - 이미지 URL -> 텍스트 추출
 - 크롤링 상태 관리 (초기/일일 크롤링 구분)
 - 데이터베이스 파일 관리
+- FastAPI 서버로 파일 전송
 """
 
 import os
@@ -20,7 +21,8 @@ from openai import OpenAI
 from pyzerox import zerox
 
 from hana_crawler_config import (
-    CATEGORY_MAP, OPENAI_API_KEY, MODEL, TEMPERATURE, MAX_TOKENS, PROMPT, PDF_PATH, OCR_DELAY
+    CATEGORY_MAP, OPENAI_API_KEY, MODEL, TEMPERATURE, MAX_TOKENS, PROMPT, PDF_PATH, OCR_DELAY,
+    FASTAPI_BASE_URL, FASTAPI_PORT, FASTAPI_PATH
 )
 
 
@@ -276,3 +278,33 @@ def reset_database():
     for filename in files_to_delete:
         if os.path.exists(filename):
             os.remove(filename)
+
+
+def send_to_file(file_path="notice_db.txt"):
+    """
+    FastAPI 서버로 결과 파일을 전송합니다.
+
+    Args:
+        file_path (str): 전송할 파일 경로
+
+    Returns:
+        bool: 전송 성공 여부
+    """
+    if not os.path.exists(file_path):
+        print(f"전송할 파일이 없습니다: {file_path}")
+        return False
+
+    url = f"{FASTAPI_BASE_URL}:{FASTAPI_PORT}{FASTAPI_PATH}"
+    try:
+        with open(file_path, "rb") as f:
+            files = {"file": (os.path.basename(file_path), f, "text/plain")}
+            resp = requests.post(url, files=files, timeout=30)
+        if 200 <= resp.status_code < 300:
+            print(f"FastAPI 업로드 성공: {url}")
+            return True
+        else:
+            print(f"FastAPI 업로드 실패 {resp.status_code}: {resp.text[:200]}")
+            return False
+    except Exception as e:
+        print(f"FastAPI 전송 오류: {e}")
+        return False
