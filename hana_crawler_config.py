@@ -35,6 +35,12 @@ PDF_FILENAME = "temp.pdf"
 PDF_PATH = os.path.join(OUTPUT_DIR, PDF_FILENAME)
 
 
+# FastAPI 서버 설정 (결과 파일 업로드용)
+FASTAPI_BASE_URL = "http://13.209.9.15" # "http://127.0.0.1"
+FASTAPI_PORT = "8000"
+FASTAPI_PATH = "/send/file"
+
+
 # 세부 카테고리를 대표 카테고리로 통일하기 위한 매핑 테이블
 CATEGORY_MAP = {
     # 취업 관련 카테고리
@@ -70,7 +76,7 @@ MODEL = "gpt-4o-mini"
 # AI 응답 생성 시 사용할 온도 (0.0 ~ 1.0, 낮을수록 일관성 높음)
 TEMPERATURE = 0.1
 # AI 응답 최대 토큰 수
-MAX_TOKENS = 300
+MAX_TOKENS = 200
 
 
 # 기본 크롤링 페이지 수 (1페이지 = 30개 공지사항)
@@ -81,6 +87,9 @@ REQUEST_TIMEOUT = 30
 OCR_DELAY = 2
 # OCR 적용을 위한 최소 텍스트 길이 (이 길이보다 짧으면 OCR도 시도)
 MIN_TEXT_LENGTH = 250
+
+# OpenAI 호출 간 지연 (초) - 레이트리밋 방지
+AI_CALL_DELAY = 1.5
 
 
 # 신청기간 추출을 위한 AI 프롬프트
