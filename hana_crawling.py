@@ -9,11 +9,12 @@ HANA (Hansung AI for Notice & Assistance)
 """
 
 import re
+import asyncio
 import requests
 from bs4 import BeautifulSoup as bs
 from markdownify import markdownify as md
 
-from hana_crawler_config import RSS_URL, BASE_DOMAIN, DEFAULT_MAX_PAGES, MIN_TEXT_LENGTH
+from hana_crawler_config import RSS_URL, BASE_DOMAIN, DEFAULT_MAX_PAGES, MIN_TEXT_LENGTH, AI_CALL_DELAY
 from hana_utils import (
     normalize_category, get_application_period, image_urls_to_text,
     is_stop, load_latest_crawled_id, save_latest_crawled_id
@@ -143,6 +144,8 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
             # 최종 신청기간
             start_date, end_date = None, None
             if content:
+                # 레이트리밋 방지를 위한 지연
+                await asyncio.sleep(AI_CALL_DELAY)
                 start_date, end_date = get_application_period(content)
                 if end_date and not start_date:
                     # pub_date에서 시간 제거
