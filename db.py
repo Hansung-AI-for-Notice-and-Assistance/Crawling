@@ -19,7 +19,7 @@ class FileDB: # .txt 파일로 저장
         with open(self.filename, "a", encoding="utf-8") as f:
             f.write(f"ID: {notice_id}\n")
             f.write(f"제목: {title}\n")
-            f.write(f"링크: {link}\n")
+            f.write(f"링크: {link}?layout=unknown\n")
             f.write(f"게시 날짜: {pub_date}\n")
             f.write(f"카테고리: {category}\n")
             f.write(f"시작일: {start_date if start_date else '없음'}\n")
