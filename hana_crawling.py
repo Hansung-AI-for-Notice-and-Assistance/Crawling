@@ -14,7 +14,7 @@ import requests
 from bs4 import BeautifulSoup as bs
 from markdownify import markdownify as md
 
-from hana_crawler_config import RSS_URL, BASE_DOMAIN, DEFAULT_MAX_PAGES, MIN_TEXT_LENGTH, AI_CALL_DELAY
+from hana_crawler_config import RSS_URL, BASE_DOMAIN, DEFAULT_MAX_PAGES, MIN_TEXT_LENGTH, AI_CALL_DELAY, ALLOWED_CATEGORIES
 from hana_utils import (
     normalize_category, get_application_period, image_urls_to_text,
     is_stop, load_latest_crawled_id, save_latest_crawled_id
@@ -105,6 +105,12 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
             pub_date = item.find('pubDate').get_text(strip=True) if item.find('pubDate') else ""
             category = item.find('category').get_text(strip=True) if item.find('category') else ""
 
+            # 카테고리 정규화
+            category = normalize_category(category)
+            # 허용 카테고리 필터링
+            if category not in ALLOWED_CATEGORIES:
+                continue
+
             # 공지사항 ID 추출
             match = re.search(r'143/(\d+)', link)
             notice_id = match.group(1) if match else "unknown"
@@ -116,9 +122,6 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
             # 중복 체크 - 마지막 크롤링 ID와 같으면 중단
             if latest_crawled_id and notice_id == latest_crawled_id:
                 return
-            
-            # 카테고리 정규화
-            category = normalize_category(category)
 
             # 절대 경로로 변경
             if link.startswith("/"):
