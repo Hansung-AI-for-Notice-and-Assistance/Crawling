@@ -130,6 +130,8 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
             # HTML 크롤링 (내용, 이미지, 첨부파일)
             content, image_urls, attachments = html_crawl(link)
             
+            # 레이트리밋 방지를 위한 지연
+            await asyncio.sleep(AI_CALL_DELAY) 
             # OCR 처리
             if not content and image_urls:
                 # 텍스트가 없고 이미지만 있는 경우
@@ -170,6 +172,8 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
             )
             saved_cnt += 1
             
+            await asyncio.sleep(AI_CALL_DELAY)
+
             # 가장 최신 ID 저장 (첫 번째 크롤링한 것이 가장 최신)
             if newest_id is None:
                 newest_id = notice_id

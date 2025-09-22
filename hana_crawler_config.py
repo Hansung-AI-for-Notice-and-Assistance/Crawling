@@ -96,12 +96,12 @@ DEFAULT_MAX_PAGES = 1
 # HTTP 요청 타임아웃 (초)
 REQUEST_TIMEOUT = 30
 # OCR 처리 전 대기 시간 (초) - 서버 부하 방지
-OCR_DELAY = 2
+OCR_DELAY = 3
 # OCR 적용을 위한 최소 텍스트 길이 (이 길이보다 짧으면 OCR도 시도)
 MIN_TEXT_LENGTH = 250
 
 # OpenAI 호출 간 지연 (초) - 레이트리밋 방지
-AI_CALL_DELAY = 1.5
+AI_CALL_DELAY = 3
 
 
 # 신청기간 추출을 위한 AI 프롬프트
