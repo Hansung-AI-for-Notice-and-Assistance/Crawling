@@ -115,12 +115,24 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
             match = re.search(r'143/(\d+)', link)
             notice_id = match.group(1) if match else "unknown"
 
+            # 가장 최신 ID는 첫 아이템에서 설정 (필터/중단 전에)
+            if newest_id is None:
+                newest_id = notice_id
+
             # 초기 크롤링인 경우 날짜 체크 - 작년 어제 이전 공지면 중단
             if initial and is_stop(pub_date):
+                # 조기 종료 전 최신 ID 저장 보장
+                if newest_id:
+                    save_latest_crawled_id(newest_id)
+                    print(f"가장 최신 ID 저장: {newest_id}")
                 return
 
             # 중복 체크 - 마지막 크롤링 ID와 같으면 중단
             if latest_crawled_id and notice_id == latest_crawled_id:
+                # 조기 종료 전 최신 ID 저장 보장
+                if newest_id:
+                    save_latest_crawled_id(newest_id)
+                    print(f"가장 최신 ID 저장: {newest_id}")
                 return
 
             # 절대 경로로 변경
@@ -180,8 +192,3 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
             
     print(f"총 {saved_cnt}개의 공지사항이 성공적으로 저장되었습니다!")
     print(f"OCR을 실행한 공지는 총 {ocr_count}개입니다.")
-    
-    # 가장 최신 ID 저장
-    if newest_id:
-        save_latest_crawled_id(newest_id)
-        print(f"가장 최신 ID 저장: {newest_id}")
