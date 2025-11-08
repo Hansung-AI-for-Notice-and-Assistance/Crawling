@@ -1,14 +1,8 @@
 """
 HANA (Hansung AI for Notice & Assistance)
-유틸리티 함수 모음
+한성대학교 공지사항 크롤링 시스템 유틸리티 모듈
 
-이 파일은 HANA 크롤링 시스템에서 사용되는 기본적인 유틸리티 함수들을 포함합니다.
-- 카테고리 매핑 처리
-- AI 기반 신청기간 추출
-- 이미지 URL -> 텍스트 추출
-- 크롤링 상태 관리 (초기/일일 크롤링 구분)
-- 데이터베이스 파일 관리
-- FastAPI 서버로 파일 전송
+크롤링 시스템에서 사용되는 핵심 기능 제공
 """
 
 import os
@@ -20,15 +14,21 @@ from datetime import datetime, timedelta
 from openai import OpenAI
 from pyzerox import zerox
 
-from hana_crawler_config import (
-    CATEGORY_MAP, OPENAI_API_KEY, MODEL, TEMPERATURE, MAX_TOKENS, PROMPT, PDF_PATH, OCR_DELAY,
-    FASTAPI_BASE_URL, FASTAPI_PORT, FASTAPI_PATH
+from crawler_config import (
+    CATEGORY_MAP,
+    DB_TEXT_FILENAME, CRAWLED_ID_FILENAME,
+    PDF_PATH, OCR_DELAY,
+    OPENAI_API_KEY, MODEL, TEMPERATURE, MAX_TOKENS,
+    FASTAPI_BASE_URL, FASTAPI_PORT, FASTAPI_PATH,
+    PROMPT
 )
 
+# ============================================================================
 
+# 카테고리 정규화
 def normalize_category(category):
     """
-    카테고리를 정규화합니다.
+    세부 카테고리를 대표 카테고리로 정규화
     
     Args:
         category (str): 원본 카테고리명
@@ -38,10 +38,12 @@ def normalize_category(category):
     """
     return CATEGORY_MAP.get(category, category)
 
+# ============================================================================
 
+# AI 기반 데이터 추출
 def get_application_period(content):
     """
-    OpenAI API를 사용하여 공지사항 본문에서 신청기간을 추출합니다.
+    OpenAI API로 공지사항 본문에서 신청기간 추출
     
     Args:
         content (str): 공지사항 본문 내용
@@ -55,10 +57,8 @@ def get_application_period(content):
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
         
-        # 프롬프트 템플릿 사용
-        prompt = PROMPT.format(
-            content=content
-        )
+        # 프롬프트 생성
+        prompt = PROMPT.format(content=content)
 
         response = client.chat.completions.create(
             model=MODEL,
@@ -70,7 +70,6 @@ def get_application_period(content):
         # AI 응답 파싱
         ai_response = response.choices[0].message.content.strip()
         
-        # 빈 응답 체크
         if not ai_response:
             print("AI 응답이 비어있습니다.")
             return None, None
@@ -97,10 +96,13 @@ def get_application_period(content):
         print(f"AI 신청기간 추출 실패: {e}")
         return None, None
 
+# ============================================================================
+
+# 이미지 및 OCR 처리
 
 def images_to_pdf(image_urls):
     """
-    이미지 URL들을 PDF로 변환합니다.
+    이미지 URL들을 PDF로 변환
     
     Args:
         image_urls (list): 이미지 URL 리스트
@@ -109,12 +111,12 @@ def images_to_pdf(image_urls):
         bool: 변환 성공 여부
     """
     try:
-        # 출력 디렉토리가 없으면 생성
+        # 출력 디렉토리 생성
         os.makedirs(os.path.dirname(PDF_PATH), exist_ok=True)
         
         image_list = []
         
-        # 모든 이미지를 다운로드
+        # 이미지 다운로드
         for url in image_urls:
             try:
                 response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -138,10 +140,9 @@ def images_to_pdf(image_urls):
         print(f"이미지 -> PDF 변환 중 오류 발생: {e}")
         return False
 
-
 async def get_text_from_pdf(file_path):
     """
-    PDF에서 zerox를 사용하여 텍스트를 추출합니다.
+    PDF에서 zerox로 텍스트 추출
     
     Args:
         file_path (str): PDF 파일 경로
@@ -153,7 +154,7 @@ async def get_text_from_pdf(file_path):
         result = await zerox(
             file_path=file_path,
             model=MODEL
-            )
+        )
         
         content = ""
         for page in result.pages:
@@ -165,10 +166,9 @@ async def get_text_from_pdf(file_path):
         print(f"OCR 처리 실패: {e}")
         return None
 
-
 async def image_urls_to_text(image_urls):
     """
-    이미지 URL들에서 텍스트를 추출합니다.
+    이미지 URL들에서 텍스트 추출 (PDF 변환 + OCR)
     
     Args:
         image_urls (list[str]): 이미지 URL 리스트
@@ -177,12 +177,12 @@ async def image_urls_to_text(image_urls):
         str | None: 추출된 텍스트
     """
     try:
-        # 이미지를 PDF로 변환 (임시 파일 자동 생성)
+        # 이미지 -> PDF 변환
         if not images_to_pdf(image_urls):
             print("PDF 변환 실패")
             return None
             
-        # API 호출 전 딜레이
+        # API 호출 전 대기
         await asyncio.sleep(OCR_DELAY)
             
         # OCR 처리
@@ -201,20 +201,22 @@ async def image_urls_to_text(image_urls):
         except OSError as e:
             print(f"임시 파일 삭제 실패: {e}")
 
+# ============================================================================
+
+# 크롤링 상태 관리
 
 def is_initial_crawl():
     """
-    초기 크롤링인지 확인합니다.
+    초기 크롤링인지 확인
     
     Returns:
-        bool: 초기 크롤링 여부. notice_db.txt 파일이 없으면 True
+        bool: DB 파일이 없으면 True (초기 크롤링)
     """
-    return not os.path.exists("notice_db.txt")
-
+    return not os.path.exists(DB_TEXT_FILENAME)
 
 def is_stop(pub_date):
     """
-    크롤링을 중단해야 하는지 확인합니다.
+    크롤링 중단 여부 확인 (1년 전 데이터는 중단)
     
     Args:
         pub_date (str): 공지사항 게시일 (예: "2025-09-16 14:30:00" 또는 "2025-09-16")
@@ -222,11 +224,11 @@ def is_stop(pub_date):
     Returns:
         bool: 크롤링 중단 여부
     """
-    # pub_date 파싱 (시간 부분 제거)
+    # 날짜 부분만 추출
     if ' ' in pub_date:
         pub_date = pub_date.split(' ')[0]
     
-    # 작년 어제 날짜 계산
+    # 1년 전 날짜 계산
     last_year_yesterday = datetime.now() - timedelta(days=365)
     target_date = last_year_yesterday.strftime("%Y-%m-%d")
     
@@ -235,61 +237,67 @@ def is_stop(pub_date):
         
     return False
 
-
 def load_latest_crawled_id():
     """
-    마지막으로 크롤링한 공지 ID를 로드합니다.
+    마지막 크롤링 ID 로드
     
     Returns:
-        str | None: 마지막 크롤링 ID (파일이 없거나 비어있으면 None)
+        str | None: 마지막 크롤링 ID (파일이 없으면 None)
     """
-    if os.path.exists("crawled_id.txt"):
-        with open("crawled_id.txt", "r", encoding="utf-8") as f:
+    if os.path.exists(CRAWLED_ID_FILENAME):
+        with open(CRAWLED_ID_FILENAME, "r", encoding="utf-8") as f:
             latest_id = f.read().strip()
             return latest_id if latest_id else None
     return None
 
-
 def save_latest_crawled_id(notice_id):
     """
-    마지막으로 크롤링한 공지 ID를 저장합니다.
+    마지막 크롤링 ID 저장
     
     Args:
         notice_id (str): 저장할 공지 ID
     """
-    with open("crawled_id.txt", "w", encoding="utf-8") as f:
+    with open(CRAWLED_ID_FILENAME, "w", encoding="utf-8") as f:
         f.write(notice_id)
 
+# ============================================================================
+
+# 데이터베이스 파일 관리
 
 def remove_notice_db():
     """
-    notice_db.txt 파일만 삭제합니다 (일일 크롤링용).
+    DB 파일 삭제 (일일 크롤링용)
     """
-    if os.path.exists("notice_db.txt"):
-        os.remove("notice_db.txt")
-
+    if os.path.exists(DB_TEXT_FILENAME):
+        os.remove(DB_TEXT_FILENAME)
 
 def reset_database():
     """
-    데이터베이스 파일들을 삭제합니다 (초기화).
+    DB 파일 초기화 (모든 크롤링 기록 삭제)
     """
-    files_to_delete = ["notice_db.txt", "crawled_id.txt"]
+    files_to_delete = [DB_TEXT_FILENAME, CRAWLED_ID_FILENAME]
     
     for filename in files_to_delete:
         if os.path.exists(filename):
             os.remove(filename)
 
+# ============================================================================
 
-def send_to_file(file_path="notice_db.txt"):
+# FastAPI 서버 연동
+
+def send_to_file(file_path=None):
     """
-    FastAPI 서버로 결과 파일을 전송합니다.
+    FastAPI 서버로 결과 파일 전송
 
     Args:
-        file_path (str): 전송할 파일 경로
+        file_path (str): 전송할 파일 경로 (기본값: DB_TEXT_FILENAME)
 
     Returns:
         bool: 전송 성공 여부
     """
+    if file_path is None:
+        file_path = DB_TEXT_FILENAME
+    
     if not os.path.exists(file_path):
         print(f"전송할 파일이 없습니다: {file_path}")
         return False

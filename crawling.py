@@ -2,10 +2,7 @@
 HANA (Hansung AI for Notice & Assistance)
 한성대학교 공지사항 크롤링 모듈
 
-이 파일은 한성대학교 공지사항을 크롤링하고 AI를 활용하여 신청기간을 추출하는 기능을 제공합니다.
-- RSS 피드 크롤링
-- HTML 페이지 크롤링
-- OCR 이미지 텍스트 추출
+RSS 피드 및 HTML 페이지 크롤링을 통해 공지사항 데이터 수집
 """
 
 import re
@@ -14,17 +11,25 @@ import requests
 from bs4 import BeautifulSoup as bs
 from markdownify import markdownify as md
 
-from hana_crawler_config import RSS_URL, BASE_DOMAIN, DEFAULT_MAX_PAGES, MIN_TEXT_LENGTH, AI_CALL_DELAY, ALLOWED_CATEGORIES
-from hana_utils import (
-    normalize_category, get_application_period, image_urls_to_text,
+from crawler_config import (
+    RSS_URL, BASE_DOMAIN, HTML_CONTENT_CLASS, HTML_FILE_CLASS, NOTICE_ID_PATTERN,
+    MIN_TEXT_LENGTH, AI_CALL_DELAY, ALLOWED_CATEGORIES
+)
+from utils import (
+    normalize_category,
+    get_application_period,
+    image_urls_to_text,
     is_stop, load_latest_crawled_id, save_latest_crawled_id
 )
 
 
-# HTML 크롤링 함수
+# ============================================================================
+
+# HTML 페이지 크롤링
+
 def html_crawl(link, base_domain=BASE_DOMAIN):
     """
-    공지사항 게시글을 조회하여 내용, 사진, 첨부파일을 수집합니다.
+    공지사항 게시글에서 본문, 이미지, 첨부파일 수집
     
     Args:
         link (str): 공지사항 URL
@@ -33,31 +38,31 @@ def html_crawl(link, base_domain=BASE_DOMAIN):
     Returns:
         tuple[str | None, list[str], list[str]]: (본문, 이미지 URL 목록, 첨부파일 목록)
     """
-
     page = requests.get(link)
     soup = bs(page.text, 'html.parser')
 
-    # 본문 내용, 사진 링크들, 첨부파일들
     content, image_urls, attachments = None, [], []
 
-    # 내용 및 사진
-    view_con_div = soup.find('div', class_='view-con')
+    # 본문 내용 및 이미지 추출
+    view_con_div = soup.find('div', class_=HTML_CONTENT_CLASS)
     if view_con_div:
+        # HTML을 Markdown으로 변환
         content = md(str(view_con_div), strip=['a', 'img']).strip()
         
-        # 이미지 URL 추출
+        # 이미지 URL 수집
         for img_tag in view_con_div.find_all('img', src=True):
             src = img_tag['src']
+            # 상대 경로를 절대 경로로 변환
             if src.startswith('/'):
                 src = f"{base_domain}{src}"
             image_urls.append(src)
 
-    # 첨부파일
-    file_div = soup.find('div', class_='view-file')
+    # 첨부파일 추출
+    file_div = soup.find('div', class_=HTML_FILE_CLASS)
     if file_div:
         for a_tag in file_div.find_all('a', href=True):
             href = a_tag['href']
-            # 다운로드 링크만 필터링
+            # 다운로드 링크만 수집
             if "download.do" in href:
                 if href.startswith('/'):
                     file_url = f"{base_domain}{href}"
@@ -66,11 +71,13 @@ def html_crawl(link, base_domain=BASE_DOMAIN):
     
     return content, image_urls, attachments
 
+# ============================================================================
 
-# RSS 크롤링 메인 함수
-async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_URL, base_domain=BASE_DOMAIN):
+# RSS 피드 크롤링
+
+async def rss_crawl(db, max_pages, initial=False, rss_url=RSS_URL, base_domain=BASE_DOMAIN):
     """
-    RSS 피드를 순회하여 제목, 링크, 게시일, 카테고리를 수집하고 크롤링합니다.
+    RSS 피드를 순회하며 공지사항 수집 및 처리
     
     Args:
         db: 데이터베이스 객체
@@ -79,7 +86,6 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
         rss_url (str): RSS URL 템플릿
         base_domain (str): 기본 도메인
     """
-
     saved_cnt = 0
     ocr_count = 0
     
@@ -89,7 +95,7 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
     # 가장 최신 ID 저장용
     newest_id = None
 
-    for page_number in range(1, max_pages+1):
+    for page_number in range(1, max_pages + 1):
         url = rss_url.format(page_number)
         page = requests.get(url)
             
@@ -100,72 +106,72 @@ async def rss_crawl(db, max_pages=DEFAULT_MAX_PAGES, initial=False, rss_url=RSS_
             break
 
         for item in items:
+            # RSS 아이템에서 기본 정보 추출
             title = item.find('title').get_text(strip=True) if item.find('title') else ""
             link = item.find('link').get_text(strip=True) if item.find('link') else ""
             pub_date = item.find('pubDate').get_text(strip=True) if item.find('pubDate') else ""
             category = item.find('category').get_text(strip=True) if item.find('category') else ""
 
-            # 카테고리 정규화
+            # 카테고리 정규화 및 필터링
             category = normalize_category(category)
-            # 허용 카테고리 필터링
             if category not in ALLOWED_CATEGORIES:
                 continue
 
             # 공지사항 ID 추출
-            match = re.search(r'143/(\d+)', link)
+            match = re.search(NOTICE_ID_PATTERN, link)
             notice_id = match.group(1) if match else "unknown"
 
-            # 가장 최신 ID는 첫 아이템에서 설정 (필터/중단 전에)
+            # 가장 최신 ID 저장 (첫 아이템)
             if newest_id is None:
                 newest_id = notice_id
 
-            # 초기 크롤링인 경우 날짜 체크 - 작년 어제 이전 공지면 중단
+            # 초기 크롤링: 1년 전 데이터 도달 시 중단
             if initial and is_stop(pub_date):
-                # 조기 종료 전 최신 ID 저장 보장
                 if newest_id:
                     save_latest_crawled_id(newest_id)
                     print(f"가장 최신 ID 저장: {newest_id}")
                 return
 
-            # 중복 체크 - 마지막 크롤링 ID와 같으면 중단
+            # 중복 체크: 마지막 크롤링 ID와 동일하면 중단
             if latest_crawled_id and notice_id == latest_crawled_id:
-                # 조기 종료 전 최신 ID 저장 보장
                 if newest_id:
                     save_latest_crawled_id(newest_id)
                     print(f"가장 최신 ID 저장: {newest_id}")
                 return
 
-            # 절대 경로로 변경
+            # 상대 경로를 절대 경로로 변환
             if link.startswith("/"):
                 link = f"{base_domain}{link}"
 
-            # HTML 크롤링 (내용, 이미지, 첨부파일)
+            # HTML 크롤링 (본문, 이미지, 첨부파일)
             content, image_urls, attachments = html_crawl(link)
             
-            # 레이트리밋 방지를 위한 지연
-            await asyncio.sleep(AI_CALL_DELAY) 
+            # API 호출 간격 대기
+            await asyncio.sleep(AI_CALL_DELAY)
+            
             # OCR 처리
             if not content and image_urls:
                 # 텍스트가 없고 이미지만 있는 경우
                 ocr_count += 1
-                
                 content = await image_urls_to_text(image_urls)
-            elif content and len(content) < MIN_TEXT_LENGTH and image_urls:
-                # 텍스트가 짧고 이미지가 있는 경우 OCR도 시도
-                ocr_count += 1
                 
+            elif content and len(content) < MIN_TEXT_LENGTH and image_urls:
+                # 텍스트가 짧고 이미지가 있는 경우
+                ocr_count += 1
                 ocr_content = await image_urls_to_text(image_urls)
+                
+                # OCR 결과가 더 길면 대체
                 if ocr_content and len(ocr_content) > len(content):
                     content = ocr_content
             
-            # 최종 신청기간
+            # 신청기간 추출
             start_date, end_date = None, None
             if content:
-                # 레이트리밋 방지를 위한 지연
                 await asyncio.sleep(AI_CALL_DELAY)
                 start_date, end_date = get_application_period(content)
+                
+                # 종료일만 있고 시작일이 없으면 게시일을 시작일로 사용
                 if end_date and not start_date:
-                    # pub_date에서 시간 제거
                     clean_pub_date = pub_date.split(' ')[0] if ' ' in pub_date else pub_date
                     start_date = clean_pub_date
                 

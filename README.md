@@ -1,156 +1,363 @@
-## HANA – Hansung AI for Notice & Assistance (크롤러)
+# HANA – Hansung AI for Notice & Assistance
 
-한성대학교 공지 데이터를 자동 수집·가공하여 텍스트 파일로 저장하고, FastAPI 서버로 업로드하는 크롤링 모듈입니다. 
+> 한성대학교 공지사항 자동 수집 및 AI 기반 데이터 가공 시스템
 
----
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 
-### ✨ 주요 기능
-- **RSS/HTML 크롤링**: 한성대 공지 RSS를 순회하고 상세 페이지에서 본문/이미지/첨부파일을 수집
-- **OCR 기반 이미지 텍스트 추출**: `img2pdf`+`py-zerox`로 이미지→PDF→텍스트 변환
-- **기간 추출**: 본문에서 신청 기간 추출
-- **중복/중단 로직**: 일일 적재시 `crawled_id.txt`로 중복 방지, 초기 적재 시 오래된 공지에서 자동 중단
-- **카테고리 필터/정규화**: 불필요한 카테고리 제외 및 대표 카테고리 맵핑
-- **결과 저장/전송**: 구조화 텍스트를 `notice_db.txt`로 저장 후, FastAPI로 업로드
+**HANA**는 한성대학교 공지사항을 자동으로 수집하고, AI를 활용하여 신청 기간을 추출하며, OCR로 이미지 기반 공지도 텍스트로 변환하는 크롤링 시스템입니다.
 
 ---
 
-### 🚀 시작하는 방법
+## ✨ 주요 기능
 
-로컬(Windows)와 서버(Linux) 기준으로 설치 및 실행 방법을 분리 안내합니다. OCR은 [zerox](https://github.com/getomni-ai/zerox)를 사용하며, zerox가 내부적으로 Poppler에 의존하므로 Poppler를 설치해야 합니다.
+### 🔍 **자동 크롤링**
+- RSS 피드와 HTML 파싱을 통한 공지사항 수집
+- 본문, 이미지, 첨부파일 자동 추출
+- 카테고리별 필터링 및 정규화
 
-#### Windows (로컬)
-1) Python 3.11+ 설치 후 가상환경(권장) 생성/활성화 및 의존성 설치
+### 🤖 **AI 기반 데이터 추출**
+- OpenAI GPT를 활용한 신청 기간 자동 추출
+- 시작일/종료일 구조화된 JSON 형식으로 반환
+
+### 📸 **OCR 이미지 처리**
+- 이미지 기반 공지사항 텍스트 변환 (py-zerox)
+- 자동 PDF 변환 후 Vision AI로 텍스트 추출
+
+### 🔄 **중복 방지 및 최적화**
+- 초기 크롤링: 1년치 데이터 수집
+- 일일 크롤링: 최신 공지만 수집 (중복 제거)
+- API 호출 최적화 (지연 시간 자동 조절)
+
+### 💾 **유연한 저장 방식**
+- 텍스트 파일 기반 간단한 DB
+- FastAPI 서버로 자동 업로드 (선택사항)
+
+---
+
+## 📦 프로젝트 구조
+
+```
+Crawling/
+├── crawler_config.py       # 전역 설정 (CSS 클래스, 패턴, AI 옵션 등)
+├── db.py                   # TextFileDB 클래스 (텍스트 파일 저장)
+├── crawling.py             # RSS/HTML 크롤링 메인 로직
+├── utils.py                # AI, OCR, 상태 관리 유틸리티
+├── start.py                # 실행 엔트리포인트
+├── requirements.txt        # 의존성 목록
+├── .env                    # 환경 변수 (API 키, URL 등, git 제외)
+├── .gitignore              # Git 제외 파일 목록
+├── notice_db.txt           # 크롤링 결과 저장 (자동 생성)
+└── crawled_id.txt          # 마지막 크롤링 ID (자동 생성)
+```
+
+### 📂 주요 모듈 설명
+
+#### `crawler_config.py`
+크롤링 시스템의 모든 설정을 중앙에서 관리
+- CSS 클래스명, 정규식 패턴, 파일명
+- OpenAI API 설정, AI 프롬프트
+- 카테고리 매핑, OCR 설정, 지연 시간 등
+- ※ URL과 도메인은 `.env`에서 로드
+
+#### `db.py`
+텍스트 파일 기반 데이터베이스
+- `TextFileDB`: 공지사항을 구조화된 형식으로 저장
+
+#### `crawling.py`
+크롤링 핵심 로직
+- `html_crawl()`: 공지사항 상세 페이지 파싱
+- `rss_crawl()`: RSS 피드 순회 및 데이터 수집
+
+#### `utils.py`
+유틸리티 함수 모음
+- AI 기반 신청기간 추출
+- 이미지 OCR 처리
+- 크롤링 상태 관리
+- FastAPI 서버 연동
+
+#### `start.py`
+실행 진입점
+- 초기/일일 크롤링 모드 자동 감지
+- 크롤링 시간 측정 및 결과 리포트
+
+---
+
+## 🚀 시작하기
+
+### 1️⃣ 사전 준비
+
+#### Python 설치
+- Python 3.11 이상 필요
+- [Python 공식 웹사이트](https://www.python.org/)에서 다운로드
+
+#### Poppler 설치 (OCR 기능 사용 시 필수)
+
+**Windows:**
+1. [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases) 다운로드
+2. 압축 해제 (예: `C:\poppler`)
+3. 환경 변수 PATH에 `C:\poppler\Library\bin` 추가
+
+**Linux (Ubuntu/Debian):**
 ```bash
-python -m venv .venv
-.\.venv\Scripts\activate
+sudo apt update
+sudo apt install -y poppler-utils
+```
+
+**macOS:**
+```bash
+brew install poppler
+```
+
+### 2️⃣ 프로젝트 설정
+
+#### 1. 저장소 클론
+```bash
+git clone <repository-url>
+cd Crawling
+```
+
+#### 2. 가상환경 생성 및 활성화
+
+**Windows:**
+```bash
+python -m venv venv_crawling
+venv_crawling\Scripts\activate
+```
+
+**Linux/macOS:**
+```bash
+python3 -m venv venv_crawling
+source venv_crawling/bin/activate
+```
+
+#### 3. 의존성 설치
+```bash
 pip install -r requirements.txt
 ```
 
-2) Poppler 설치(수동 설치)
-- [Poppler for Windows 릴리스](https://github.com/oschwartz10612/poppler-windows/releases/)에서 다운로드 후, 설치 경로의 `bin` 디렉터리를 PATH에 추가
+#### 4. 환경 변수 설정
 
-3) 환경 변수 설정(`.env` 파일 생성)
-```bash
-OPENAI_API_KEY=your_openai_api_key
-```
+프로젝트 루트에 `.env` 파일 생성:
 
-4) 실행
-- 데이터 초기화 후 실행(초기 크롤링)
 ```bash
-python hana_start.py reset
-python hana_start.py
-```
-- 일반 실행(일일 크롤링)
-```bash
-python hana_start.py
+# OpenAI API 키 (필수)
+OPENAI_API_KEY=sk-your-openai-api-key-here
+
+# 크롤링 대상 설정
+RSS_URL=https://www.hansung.ac.kr/bbs/hansung/143/rssList.do?page={}
+BASE_DOMAIN=https://www.hansung.ac.kr
 ```
 
-#### Linux (서버)
-1) 시스템 의존성 설치(Poppler)
-```bash
-sudo apt update && sudo apt install -y poppler-utils
-```
+**OpenAI API 키 발급:**
+1. https://platform.openai.com/api-keys 접속
+2. "Create new secret key" 클릭
+3. 생성된 키를 `.env` 파일에 입력
 
-2) Python 3.11+ 가상환경 및 의존성 설치
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-```
+### 3️⃣ 실행
 
-3) 환경 변수 설정(예: .env 파일)
+#### 초기 크롤링 (처음 실행 시)
 ```bash
-echo OPENAI_API_KEY=your_openai_api_key > .env
+python start.py
 ```
+- DB 파일이 없으면 자동으로 초기 크롤링 모드로 실행
+- 최대 100페이지 (약 3000개)의 공지사항 수집, 1년 전 데이터 도달 시 자동 중단
 
-4) 스케줄링(크론)
+#### 일일 크롤링 (정기 실행)
 ```bash
-mkdir logs
-crontab -e
+python start.py
 ```
-크론 예시(매일 01:00 실행):
-```bash
-0 1 * * * (echo "--- Log Start: $(date) ---" && cd /home/ubuntu/Crawling && venv/bin/python hana_start.py) >> /home/ubuntu/Crawling/logs/cron_$(date +'\%Y-\%m-\%d').log 2>&1
-```
+- DB 파일이 있으면 자동으로 일일 크롤링 모드로 실행
+- 최대 2페이지 (약 60개)의 최신 공지사항만 수집 (중복 제거)
 
-설정 후 크론에 의해 주기적으로 실행되며, 결과는 `notice_db.txt`로 생성/갱신되고 FastAPI 서버로 업로드됩니다.
+#### DB 초기화
+```bash
+python start.py reset
+```
+- 모든 크롤링 기록 삭제 (`notice_db.txt`, `crawled_id.txt`)
 
 ---
 
-### 📦 파일 구조(해당 모듈 기준)
+## 🔄 동작 흐름
+
 ```
-.
-├── db.py                      # 텍스트 파일 기반 간단 DB (`notice_db.txt`에 저장)
-├── hana_crawler_config.py     # 크롤러/AI/OCR/업로드 등 전역 설정
-├── hana_crawling.py           # RSS/HTML 크롤링, OCR, 기간 추출 메인 로직
-├── hana_start.py              # 실행 엔트리포인트(초기/일일 크롤링 분기, 업로드 트리거)
-├── hana_utils.py              # OCR·AI 호출, 파일/상태 관리 유틸리티
-├── requirements.txt           # 의존성 목록
-├── notice_db.txt              # 수집 결과(출력물)
-└── crawled_id.txt             # 마지막으로 본 최신 공지 ID(중복 방지)
+┌─────────────────┐
+│   start.py      │  초기/일일 크롤링 모드 감지
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  rss_crawl()    │  RSS 피드 순회
+└────────┬────────┘
+         │
+         ├─► html_crawl()          # HTML 파싱 (본문, 이미지, 첨부파일)
+         │
+         ├─► image_urls_to_text()  # OCR (이미지 → 텍스트)
+         │
+         ├─► get_application_period()  # AI (신청기간 추출)
+         │
+         └─► TextFileDB.save_notice()  # 저장
+                    │
+                    ▼
+            ┌─────────────────┐
+            │  notice_db.txt  │  결과 파일
+            └─────────────────┘
+                    │
+                    ▼
+            ┌─────────────────┐
+            │ FastAPI 업로드   │  (선택사항)
+            └─────────────────┘
 ```
 
 ---
 
-### 🧠 동작 흐름
-1. `hana_start.py`에서 초기/일일 크롤링 모드 결정 및 실행 시작
-2. `hana_crawling.rss_crawl`이 RSS로 공지 목록을 수집하고, 각 공지 상세 페이지를 파싱(`html_crawl`)
-3. 본문이 없거나, 본문이 짧고 이미지가 있으면 `hana_utils.image_urls_to_text`로 이미지→PDF→OCR 텍스트 추출
-4. 최종 본문에서 `hana_utils.get_application_period`가 신청 기간(JSON) 추출
-5. `db.FileDB.save_notice`로 `notice_db.txt`에 구조화 저장(이미지/첨부 포함)
-6. 실행 종료 시 `hana_utils.send_to_file`로 FastAPI 서버에 결과 파일 업로드
+## 📊 출력 형식 예시
 
----
-
-
-
-### 🧩 핵심 모듈들 설명
-- `db.FileDB`
-  - `save_notice(...)`: 공지 1건을 사람이 읽기 쉬운 형태로 `notice_db.txt`에 저장
-- `hana_crawling.html_crawl`
-  - 상세 페이지에서 본문(마크다운), 이미지 URL, 첨부파일(이름 | 다운로드 URL) 추출
-- `hana_crawling.rss_crawl`
-  - RSS 수집→필터→상세 파싱→OCR/AI→저장 전 과정을 순회(중복/중단 제어 포함)
-- `hana_utils.image_urls_to_text`
-  - 이미지 묶음→PDF→`zerox` OCR로 텍스트 생성 및 반환(실패 시 빈 문자열)
-- `hana_utils.get_application_period`
-  - 본문에서 `{has_period, start_date, end_date}` JSON 추출 및 반환
-- `hana_utils.send_to_file`
-  - FastAPI로 `notice_db.txt` 업로드(성공/실패 로그 출력)
-
----
-
-### 🧾 출력 포맷 예시(요약)
 ```text
-ID: 271xxx
-제목: ...
-링크: https://www.hansung.ac.kr/bbs/hansung/143/271xxx/artclView.do?layout=unknown
-게시 날짜: YYYY-MM-DD hh:mm:ss
-카테고리: 한성공지 | 학사 | 비교과 | 진로 및 취·창업 | 장학 | 국제
-시작일: YYYY-MM-DD 또는 없음
-종료일: YYYY-MM-DD 또는 없음
-이미지 URL:
-	- https://...
+ID: 271234
+제목: 2025학년도 1학기 수강신청 안내
+링크: https://www.hansung.ac.kr/bbs/hansung/143/271234/artclView.do?layout=unknown
+게시 날짜: 2025-01-15 14:30:00
+카테고리: 학사
+시작일: 2025-01-20
+종료일: 2025-01-25
+이미지 URL: 없음
 첨부파일:
-	- 파일명.pdf | https://.../download.do
+	- 수강신청_안내문.pdf | https://www.hansung.ac.kr/.../download.do
 내용:
-...공지 본문 마크다운...
+2025학년도 1학기 수강신청 일정을 안내드립니다.
+
+**수강신청 기간**
+- 2025년 1월 20일(월) 09:00 ~ 1월 25일(토) 18:00
+
+...
 
 --------------------------------------------------
 ```
 
 ---
 
-### ⚙️ 요구 사항
+## ⚙️ 설정 커스터마이징
+
+### `crawler_config.py` 주요 설정
+
+```python
+# 카테고리 필터 (원하는 카테고리만 선택)
+ALLOWED_CATEGORIES = [
+    "한성공지",
+    "학사",
+    "비교과",
+    "진로 및 취·창업",
+    "장학",
+    "국제",
+]
+
+# AI 모델 설정
+MODEL = "gpt-4o-mini"
+TEMPERATURE = 0.1
+MAX_TOKENS = 200
+
+# OCR 최소 텍스트 길이 (이 길이보다 짧으면 OCR 시도)
+MIN_TEXT_LENGTH = 250
+
+# API 호출 간격 (초)
+AI_CALL_DELAY = 3
+OCR_DELAY = 3
+```
+
+---
+
+## 🛠️ 개발 환경
+
+### 요구 사항
 - Python 3.11+
-- `requirements.txt`
-  - requests, beautifulsoup4, lxml, openai, py-zerox, img2pdf, markdownify, python-dotenv, ipykernel
+- Poppler (OCR 기능 사용 시)
+- OpenAI API 키
+
+### 의존성 라이브러리
+```
+requests~=2.32.3
+beautifulsoup4~=4.12.2
+lxml>=5.0.0
+openai~=1.102.0
+py-zerox~=0.0.7
+img2pdf~=0.6.1
+markdownify~=1.2.0
+python-dotenv~=1.1.1
+ipykernel~=6.30.1
+```
+
+### 주요 기술 스택
+- [OpenAI API](https://openai.com/) - GPT 기반 신청기간 추출
+- [py-zerox](https://github.com/getomni-ai/zerox) - Vision AI 기반 OCR
+- [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/) - HTML 파싱
+- [Requests](https://docs.python-requests.org/) - HTTP 요청
+- [python-dotenv](https://github.com/theskumar/python-dotenv) - 환경 변수 관리
 
 ---
 
-### 🔒 환경/비용 유의사항
-- OpenAI/zerox 호출은 과금이 발생할 수 있습니다. 키/쿼터를 관리하세요.
-- `AI_CALL_DELAY`, `OCR_DELAY`는 레이트리밋·서버 부하 방지를 위한 값입니다.
-- 업로드 대상 서버(`FASTAPI_BASE_URL`, `FASTAPI_PORT`, `FASTAPI_PATH`)는 운영 환경에 맞게 변경하세요.
+## 📅 자동 실행 (Cron)
+
+### Linux 서버에서 정기 실행
+
+#### 1. 크론 작업 편집
+```bash
+crontab -e
+```
+
+#### 2. 매일 새벽 1시 실행 예시
+```bash
+0 1 * * * cd /path/to/Crawling && /path/to/venv_crawling/bin/python start.py >> logs/crawling.log 2>&1
+```
+
+#### 3. 로그 디렉토리 생성
+```bash
+mkdir -p logs
+```
 
 ---
+
+## 🔐 보안 및 비용 관리
+
+### 환경 변수 관리
+- `.env` 파일은 절대 Git에 커밋하지 마세요
+- `.gitignore`에 이미 포함되어 있습니다
+
+### API 비용 최적화
+- `AI_CALL_DELAY`로 호출 빈도 조절
+- `MIN_TEXT_LENGTH`로 불필요한 OCR 호출 방지
+- OpenAI API 사용량 모니터링: https://platform.openai.com/usage
+
+### 레이트 리밋 관리
+- 지연 시간(`AI_CALL_DELAY`, `OCR_DELAY`) 설정으로 제어
+- 대량 크롤링 시 페이지 수 조절 권장
+
+---
+
+## 🐛 트러블슈팅
+
+### 1. Poppler 관련 오류
+```
+Unable to get page count. Is poppler installed and in PATH?
+```
+**해결:** Poppler를 설치하고 PATH에 추가하세요. (위 설치 가이드 참고)
+
+### 2. OpenAI API 키 오류
+```
+Error code: 401 - Incorrect API key provided
+```
+**해결:** `.env` 파일에 올바른 API 키를 입력했는지 확인하세요.
+
+### 3. lxml 설치 오류 (Windows)
+```
+ERROR: Failed building wheel for lxml
+error: Microsoft Visual C++ 14.0 or greater is required
+```
+**해결:**
+1. **Microsoft C++ Build Tools 설치**
+   - https://visualstudio.microsoft.com/visual-cpp-build-tools/ 접속
+   - "Build Tools 다운로드" 클릭
+   - 설치 시 "C++ 빌드 도구" 체크박스 선택
+   - 설치 후 터미널 재시작
+2. **또는** requirements.txt가 `lxml>=5.0.0`으로 설정되어 있는지 확인
+   - Python 3.13+는 미리 컴파일된 wheel이 제공됨
 
