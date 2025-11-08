@@ -361,3 +361,17 @@ error: Microsoft Visual C++ 14.0 or greater is required
 2. **또는** requirements.txt가 `lxml>=5.0.0`으로 설정되어 있는지 확인
    - Python 3.13+는 미리 컴파일된 wheel이 제공됨
 
+---
+
+## 📞 문의
+
+- **Repository**: [HANA Crawling](https://github.com/Hansung-AI-for-Notice-and-Assistance/Crawling.git)
+- **Issues**: [GitHub Issues](https://github.com/Hansung-AI-for-Notice-and-Assistance/Crawling/issues)
+
+---
+
+## 📝 프로젝트 정보
+
+- **개발 기간**: 2025년 9월
+- **버전**: 1.0.0
+
